@@ -183,6 +183,16 @@ func main() {
 			sales.PUT("/transactions/:id", transactionHandler.UpdateSalesTransaction)
 			sales.POST("/transactions/:id/cancel", transactionHandler.CancelSalesTransaction)
 
+			// NEW: Installment management routes
+			sales.GET("/transactions/:id/installments", transactionHandler.GetTransactionInstallments)
+			sales.POST("/installments/:installmentId/pay", transactionHandler.PayInstallment)
+			sales.GET("/installments/overdue", transactionHandler.GetOverdueInstallments)
+			sales.PATCH("/installments/:id/status", transactionHandler.UpdateInstallmentStatus)
+
+			// NEW: Payment method routes
+			sales.GET("/payment-methods", transactionHandler.GetPaymentMethods)
+			sales.POST("/payment-preview", transactionHandler.GetPaymentPreview)
+
 			// NEW: Receipt generation
 			sales.POST("/transactions/:id/receipt", transactionHandler.GenerateReceipt)
 		}
