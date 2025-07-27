@@ -47,8 +47,8 @@ func (u *transactionUsecase) CreateSalesTransaction(req *entities.CreateSalesTra
 		return nil, fmt.Errorf("vehicle not found: %w", err)
 	}
 
-	if vehicle.Status != "ready_to_sell" {
-		return nil, fmt.Errorf("vehicle is not ready for sale (status: %s)", vehicle.Status)
+	if vehicle.AvailabilityStatus != "available" {
+		return nil, fmt.Errorf("vehicle is not available for sale (status: %s)", vehicle.AvailabilityStatus)
 	}
 
 	// Validate cashier exists and has correct role
