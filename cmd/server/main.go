@@ -185,7 +185,7 @@ func main() {
 
 			// NEW: Installment management routes
 			sales.GET("/transactions/:id/installments", transactionHandler.GetTransactionInstallments)
-			sales.POST("/transactions/:transactionId/installments/:installmentId/pay", transactionHandler.PayInstallment)
+			sales.POST("/installments/:installmentId/pay", transactionHandler.PayInstallment)
 			sales.GET("/installments/overdue", transactionHandler.GetOverdueInstallments)
 			sales.PATCH("/installments/:id/status", transactionHandler.UpdateInstallmentStatus)
 

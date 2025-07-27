@@ -643,13 +643,12 @@ func (h *TransactionHandler) GetTransactionInstallments(c *gin.Context) {
 // @Tags Installments
 // @Accept json
 // @Produce json
-// @Param transactionId path int true "Transaction ID"
 // @Param installmentId path int true "Installment ID"
 // @Param payment body entities.PayInstallmentRequest true "Payment data"
 // @Success 200 {object} response.Response
 // @Failure 400 {object} response.Response
 // @Failure 404 {object} response.Response
-// @Router /api/sales/transactions/{transactionId}/installments/{installmentId}/pay [post]
+// @Router /api/sales/installments/{installmentId}/pay [post]
 func (h *TransactionHandler) PayInstallment(c *gin.Context) {
 	installmentIDParam := c.Param("installmentId")
 	installmentID, err := strconv.Atoi(installmentIDParam)
