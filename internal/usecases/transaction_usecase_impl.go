@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"fmt"
+	"math"
 	"time"
 	"vehicle-showroom-backend/internal/config"
 	"vehicle-showroom-backend/internal/domain/entities"
@@ -66,26 +67,59 @@ func (u *transactionUsecase) CreateSalesTransaction(req *entities.CreateSalesTra
 		return nil, fmt.Errorf("total amount must be greater than zero")
 	}
 
+	// Validate payment method and installment requirements
+	err = u.validatePaymentMethod(req, totalAmount)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate installment details
+	downPayment, remainingAmount, monthlyPayment, paymentStatus := u.calculateInstallmentDetails(req, totalAmount)
+
+	// Set down payment date for credit/mixed payments
+	var downPaymentDate *time.Time
+	if req.PaymentMethod == entities.PaymentCredit || req.PaymentMethod == entities.PaymentMixed {
+		now := time.Now()
+		downPaymentDate = &now
+	}
+
 	// Create sales transaction
 	transaction := &entities.SalesTransaction{
-		VehicleID:        req.VehicleID,
-		CustomerID:       req.CustomerID,
-		VehiclePrice:     req.VehiclePrice,
-		TaxAmount:        req.TaxAmount,
-		DiscountAmount:   req.DiscountAmount,
-		TotalAmount:      totalAmount,
-		PaymentMethod:    req.PaymentMethod,
-		PaymentReference: req.PaymentReference,
-		TransactionDate:  time.Now(),
-		CashierID:        cashierID,
-		Status:           entities.TransactionCompleted,
-		Notes:            req.Notes,
+		VehicleID:         req.VehicleID,
+		CustomerID:        req.CustomerID,
+		VehiclePrice:      req.VehiclePrice,
+		TaxAmount:         req.TaxAmount,
+		DiscountAmount:    req.DiscountAmount,
+		TotalAmount:       totalAmount,
+		PaymentMethod:     req.PaymentMethod,
+		PaymentReference:  req.PaymentReference,
+		TransactionDate:   time.Now(),
+		CashierID:         cashierID,
+		Status:            entities.TransactionCompleted,
+		Notes:             req.Notes,
+		DownPayment:       downPayment,
+		RemainingAmount:   remainingAmount,
+		PaymentStatus:     paymentStatus,
+		InstallmentMonths: req.InstallmentMonths,
+		MonthlyPayment:    monthlyPayment,
+		InterestRate:      req.InterestRate,
+		BankName:          req.BankName,
+		LoanReference:     req.LoanReference,
+		DownPaymentDate:   downPaymentDate,
 	}
 
 	// Save transaction
 	err = u.transactionRepo.CreateSalesTransaction(transaction)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sales transaction: %w", err)
+	}
+
+	// Create installment schedule if needed
+	if req.InstallmentMonths > 0 {
+		err = u.createInstallmentSchedule(transaction.ID, remainingAmount, req.InstallmentMonths, req.InterestRate)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create installment schedule: %w", err)
+		}
 	}
 
 	// Get full transaction with relations
@@ -429,4 +463,222 @@ func (u *transactionUsecase) GetCashierPerformance(cashierID int, year *int) (*e
 	}
 
 	return performance, nil
+}
+
+// ==================== INSTALLMENT MANAGEMENT METHODS ====================
+
+func (u *transactionUsecase) GetTransactionInstallments(transactionID int) ([]entities.PaymentInstallment, error) {
+	return u.transactionRepo.GetInstallmentsByTransactionID(transactionID)
+}
+
+func (u *transactionUsecase) PayInstallment(installmentID int, req *entities.PayInstallmentRequest) error {
+	return u.transactionRepo.PayInstallment(installmentID, req.Amount, req.Notes)
+}
+
+func (u *transactionUsecase) GetOverdueInstallments(page, limit int) ([]entities.PaymentInstallment, int, error) {
+	offset := (page - 1) * limit
+	installments, err := u.transactionRepo.GetOverdueInstallments(limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total, err := u.transactionRepo.CountOverdueInstallments()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return installments, total, nil
+}
+
+func (u *transactionUsecase) UpdateInstallmentStatus(installmentID int, req *entities.UpdateInstallmentStatusRequest) error {
+	installment, err := u.transactionRepo.GetInstallmentByID(installmentID)
+	if err != nil {
+		return err
+	}
+
+	installment.Status = req.Status
+	return u.transactionRepo.UpdateInstallment(installmentID, installment)
+}
+
+// ==================== PAYMENT METHODS & PREVIEW ====================
+
+func (u *transactionUsecase) GetPaymentMethods() ([]entities.PaymentMethodConfig, error) {
+	return u.transactionRepo.GetPaymentMethods()
+}
+
+func (u *transactionUsecase) GetPaymentPreview(req *entities.PaymentPreviewRequest) (*entities.PaymentPreviewResponse, error) {
+	response := &entities.PaymentPreviewResponse{
+		TotalAmount:       req.TotalAmount,
+		DownPayment:       req.DownPayment,
+		InstallmentMonths: req.InstallmentMonths,
+		InterestRate:      req.InterestRate,
+		IsValid:           true,
+		ValidationErrors:  []string{},
+	}
+
+	// Validate payment method
+	paymentMethod, err := u.transactionRepo.GetPaymentMethodByName(string(req.PaymentMethod))
+	if err != nil {
+		response.IsValid = false
+		response.ValidationErrors = append(response.ValidationErrors, "Invalid payment method")
+		return response, nil
+	}
+
+	// Validate down payment requirements
+	if paymentMethod.RequiresDownPayment {
+		minDownPayment := req.TotalAmount * paymentMethod.MinDownPaymentPercentage / 100
+		if req.DownPayment < minDownPayment {
+			response.IsValid = false
+			response.ValidationErrors = append(response.ValidationErrors, 
+				fmt.Sprintf("Minimum down payment required: %.2f (%.1f%%)", minDownPayment, paymentMethod.MinDownPaymentPercentage))
+		}
+	}
+
+	// Validate installment months
+	if req.InstallmentMonths > paymentMethod.MaxInstallmentMonths {
+		response.IsValid = false
+		response.ValidationErrors = append(response.ValidationErrors,
+			fmt.Sprintf("Maximum installment months allowed: %d", paymentMethod.MaxInstallmentMonths))
+	}
+
+	// Calculate installment details
+	if req.InstallmentMonths > 0 {
+		response.RemainingAmount = req.TotalAmount - req.DownPayment
+		
+		// Calculate monthly payment with interest
+		monthlyInterestRate := req.InterestRate / 100 / 12
+		if monthlyInterestRate > 0 {
+			// Use loan payment formula: PMT = P * (r * (1 + r)^n) / ((1 + r)^n - 1)
+			numerator := response.RemainingAmount * monthlyInterestRate * math.Pow(1 + monthlyInterestRate, float64(req.InstallmentMonths))
+			denominator := math.Pow(1 + monthlyInterestRate, float64(req.InstallmentMonths)) - 1
+			response.MonthlyPayment = numerator / denominator
+		} else {
+			response.MonthlyPayment = response.RemainingAmount / float64(req.InstallmentMonths)
+		}
+
+		response.TotalWithInterest = response.DownPayment + (response.MonthlyPayment * float64(req.InstallmentMonths))
+		response.InterestAmount = response.TotalWithInterest - req.TotalAmount
+
+		// Generate installment preview
+		response.InstallmentPreview = u.generateInstallmentPreview(response.MonthlyPayment, req.InstallmentMonths)
+	} else {
+		response.RemainingAmount = 0
+		response.MonthlyPayment = 0
+		response.TotalWithInterest = req.TotalAmount
+		response.InterestAmount = 0
+	}
+
+	return response, nil
+}
+
+// ==================== HELPER METHODS ====================
+
+func (u *transactionUsecase) validatePaymentMethod(req *entities.CreateSalesTransactionRequest, totalAmount float64) error {
+	paymentMethod, err := u.transactionRepo.GetPaymentMethodByName(string(req.PaymentMethod))
+	if err != nil {
+		return fmt.Errorf("invalid payment method: %w", err)
+	}
+
+	// Validate down payment requirements
+	if paymentMethod.RequiresDownPayment {
+		if req.DownPayment <= 0 {
+			return fmt.Errorf("down payment is required for %s payment method", paymentMethod.DisplayName)
+		}
+
+		minDownPayment := totalAmount * paymentMethod.MinDownPaymentPercentage / 100
+		if req.DownPayment < minDownPayment {
+			return fmt.Errorf("minimum down payment required: %.2f (%.1f%% of total amount)", 
+				minDownPayment, paymentMethod.MinDownPaymentPercentage)
+		}
+
+		if req.InstallmentMonths <= 0 {
+			return fmt.Errorf("installment months must be specified for %s payment method", paymentMethod.DisplayName)
+		}
+
+		if req.InstallmentMonths > paymentMethod.MaxInstallmentMonths {
+			return fmt.Errorf("maximum installment months allowed: %d", paymentMethod.MaxInstallmentMonths)
+		}
+	} else {
+		// Cash, transfer, check - no installments allowed
+		if req.DownPayment > 0 || req.InstallmentMonths > 0 {
+			return fmt.Errorf("%s payment method requires full payment upfront", paymentMethod.DisplayName)
+		}
+	}
+
+	return nil
+}
+
+func (u *transactionUsecase) calculateInstallmentDetails(req *entities.CreateSalesTransactionRequest, totalAmount float64) (downPayment, remainingAmount, monthlyPayment float64, paymentStatus entities.PaymentStatus) {
+	if req.PaymentMethod == entities.PaymentCash || req.PaymentMethod == entities.PaymentTransfer || req.PaymentMethod == entities.PaymentCheck {
+		// Full payment upfront
+		return 0, 0, 0, entities.PaymentCompleted
+	}
+
+	// Credit or Mixed payment
+	downPayment = req.DownPayment
+	remainingAmount = totalAmount - downPayment
+
+	if req.InstallmentMonths > 0 {
+		// Calculate monthly payment with interest
+		monthlyInterestRate := req.InterestRate / 100 / 12
+		if monthlyInterestRate > 0 {
+			// Use loan payment formula
+			numerator := remainingAmount * monthlyInterestRate * math.Pow(1 + monthlyInterestRate, float64(req.InstallmentMonths))
+			denominator := math.Pow(1 + monthlyInterestRate, float64(req.InstallmentMonths)) - 1
+			monthlyPayment = numerator / denominator
+		} else {
+			monthlyPayment = remainingAmount / float64(req.InstallmentMonths)
+		}
+
+		return downPayment, remainingAmount, monthlyPayment, entities.PaymentPending
+	}
+
+	return downPayment, remainingAmount, 0, entities.PaymentCompleted
+}
+
+func (u *transactionUsecase) createInstallmentSchedule(transactionID int, remainingAmount float64, months int, interestRate float64) error {
+	monthlyInterestRate := interestRate / 100 / 12
+	var monthlyPayment float64
+
+	if monthlyInterestRate > 0 {
+		// Calculate monthly payment with interest
+		numerator := remainingAmount * monthlyInterestRate * math.Pow(1 + monthlyInterestRate, float64(months))
+		denominator := math.Pow(1 + monthlyInterestRate, float64(months)) - 1
+		monthlyPayment = numerator / denominator
+	} else {
+		monthlyPayment = remainingAmount / float64(months)
+	}
+
+	var installments []entities.PaymentInstallment
+	for i := 1; i <= months; i++ {
+		dueDate := time.Now().AddDate(0, i, 0) // Add i months to current date
+		
+		installment := entities.PaymentInstallment{
+			SalesTransactionID: transactionID,
+			InstallmentNumber:  i,
+			DueDate:            dueDate,
+			Amount:             monthlyPayment,
+			Status:             entities.InstallmentPending,
+			CreatedAt:          time.Now(),
+		}
+		
+		installments = append(installments, installment)
+	}
+
+	return u.transactionRepo.CreateInstallments(installments)
+}
+
+func (u *transactionUsecase) generateInstallmentPreview(monthlyPayment float64, months int) []entities.InstallmentPreview {
+	var preview []entities.InstallmentPreview
+	
+	for i := 1; i <= months; i++ {
+		dueDate := time.Now().AddDate(0, i, 0)
+		preview = append(preview, entities.InstallmentPreview{
+			InstallmentNumber: i,
+			DueDate:           dueDate,
+			Amount:            monthlyPayment,
+		})
+	}
+	
+	return preview
 }

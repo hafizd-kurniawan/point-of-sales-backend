@@ -24,11 +24,15 @@ func (r *transactionRepositoryImpl) CreateSalesTransaction(transaction *entities
 		INSERT INTO sales_transactions (
 			vehicle_id, customer_id, vehicle_price, tax_amount, discount_amount, 
 			total_amount, payment_method, payment_reference, transaction_date, 
-			cashier_id, status, notes
+			cashier_id, status, notes, down_payment, remaining_amount, payment_status,
+			installment_plan, installment_months, monthly_payment, interest_rate,
+			bank_name, loan_reference, down_payment_date
 		) VALUES (
 			:vehicle_id, :customer_id, :vehicle_price, :tax_amount, :discount_amount,
 			:total_amount, :payment_method, :payment_reference, :transaction_date,
-			:cashier_id, :status, :notes
+			:cashier_id, :status, :notes, :down_payment, :remaining_amount, :payment_status,
+			:installment_plan, :installment_months, :monthly_payment, :interest_rate,
+			:bank_name, :loan_reference, :down_payment_date
 		) RETURNING id, transaction_number, invoice_number, created_at
 	`
 
@@ -595,4 +599,206 @@ func (r *transactionRepositoryImpl) GetTopCashiers(limit int, year *int) ([]enti
 	}
 
 	return cashiers, nil
+}
+
+// ==================== INSTALLMENT METHODS ====================
+
+func (r *transactionRepositoryImpl) CreateInstallments(installments []entities.PaymentInstallment) error {
+	if len(installments) == 0 {
+		return nil
+	}
+
+	query := `
+		INSERT INTO payment_installments (
+			sales_transaction_id, installment_number, due_date, amount, status
+		) VALUES (
+			:sales_transaction_id, :installment_number, :due_date, :amount, :status
+		)
+	`
+
+	_, err := r.db.NamedExec(query, installments)
+	if err != nil {
+		return fmt.Errorf("failed to create installments: %w", err)
+	}
+
+	return nil
+}
+
+func (r *transactionRepositoryImpl) GetInstallmentsByTransactionID(transactionID int) ([]entities.PaymentInstallment, error) {
+	query := `
+		SELECT 
+			pi.*,
+			st.transaction_number as "sales_transaction.transaction_number",
+			st.invoice_number as "sales_transaction.invoice_number"
+		FROM payment_installments pi
+		LEFT JOIN sales_transactions st ON pi.sales_transaction_id = st.id
+		WHERE pi.sales_transaction_id = $1
+		ORDER BY pi.installment_number
+	`
+
+	var installments []entities.PaymentInstallment
+	err := r.db.Select(&installments, query, transactionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get installments: %w", err)
+	}
+
+	return installments, nil
+}
+
+func (r *transactionRepositoryImpl) GetInstallmentByID(id int) (*entities.PaymentInstallment, error) {
+	query := `
+		SELECT 
+			pi.*,
+			st.transaction_number as "sales_transaction.transaction_number",
+			st.invoice_number as "sales_transaction.invoice_number"
+		FROM payment_installments pi
+		LEFT JOIN sales_transactions st ON pi.sales_transaction_id = st.id
+		WHERE pi.id = $1
+	`
+
+	var installment entities.PaymentInstallment
+	err := r.db.Get(&installment, query, id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("installment not found")
+		}
+		return nil, fmt.Errorf("failed to get installment: %w", err)
+	}
+
+	return &installment, nil
+}
+
+func (r *transactionRepositoryImpl) UpdateInstallment(id int, installment *entities.PaymentInstallment) error {
+	query := `
+		UPDATE payment_installments 
+		SET paid_amount = :paid_amount, 
+		    paid_date = :paid_date, 
+		    status = :status,
+		    late_fee = :late_fee
+		WHERE id = :id
+	`
+
+	_, err := r.db.NamedExec(query, map[string]interface{}{
+		"id":          id,
+		"paid_amount": installment.PaidAmount,
+		"paid_date":   installment.PaidDate,
+		"status":      installment.Status,
+		"late_fee":    installment.LateFee,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update installment: %w", err)
+	}
+
+	return nil
+}
+
+func (r *transactionRepositoryImpl) PayInstallment(id int, amount float64, notes string) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get current installment
+	var installment entities.PaymentInstallment
+	err = tx.Get(&installment, "SELECT * FROM payment_installments WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("failed to get installment: %w", err)
+	}
+
+	// Calculate new paid amount
+	newPaidAmount := installment.PaidAmount + amount
+	if newPaidAmount > installment.Amount {
+		return fmt.Errorf("payment amount exceeds installment amount")
+	}
+
+	// Determine new status
+	var newStatus entities.InstallmentStatus
+	if newPaidAmount >= installment.Amount {
+		newStatus = entities.InstallmentPaid
+	} else {
+		newStatus = entities.InstallmentPartial
+	}
+
+	// Update installment
+	query := `
+		UPDATE payment_installments 
+		SET paid_amount = $1, 
+		    paid_date = CURRENT_TIMESTAMP, 
+		    status = $2
+		WHERE id = $3
+	`
+
+	_, err = tx.Exec(query, newPaidAmount, newStatus, id)
+	if err != nil {
+		return fmt.Errorf("failed to update installment: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func (r *transactionRepositoryImpl) GetOverdueInstallments(limit, offset int) ([]entities.PaymentInstallment, error) {
+	query := `
+		SELECT 
+			pi.*,
+			st.transaction_number as "sales_transaction.transaction_number",
+			st.invoice_number as "sales_transaction.invoice_number",
+			c.full_name as "sales_transaction.customer.full_name",
+			c.phone as "sales_transaction.customer.phone"
+		FROM payment_installments pi
+		LEFT JOIN sales_transactions st ON pi.sales_transaction_id = st.id
+		LEFT JOIN customers c ON st.customer_id = c.id
+		WHERE pi.status = 'overdue'
+		ORDER BY pi.due_date
+		LIMIT $1 OFFSET $2
+	`
+
+	var installments []entities.PaymentInstallment
+	err := r.db.Select(&installments, query, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get overdue installments: %w", err)
+	}
+
+	return installments, nil
+}
+
+func (r *transactionRepositoryImpl) CountOverdueInstallments() (int, error) {
+	query := `SELECT COUNT(*) FROM payment_installments WHERE status = 'overdue'`
+
+	var count int
+	err := r.db.Get(&count, query)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count overdue installments: %w", err)
+	}
+
+	return count, nil
+}
+
+// ==================== PAYMENT METHODS ====================
+
+func (r *transactionRepositoryImpl) GetPaymentMethods() ([]entities.PaymentMethodConfig, error) {
+	query := `SELECT * FROM payment_methods WHERE is_active = true ORDER BY id`
+
+	var methods []entities.PaymentMethodConfig
+	err := r.db.Select(&methods, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get payment methods: %w", err)
+	}
+
+	return methods, nil
+}
+
+func (r *transactionRepositoryImpl) GetPaymentMethodByName(name string) (*entities.PaymentMethodConfig, error) {
+	query := `SELECT * FROM payment_methods WHERE method_name = $1 AND is_active = true`
+
+	var method entities.PaymentMethodConfig
+	err := r.db.Get(&method, query, name)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("payment method not found")
+		}
+		return nil, fmt.Errorf("failed to get payment method: %w", err)
+	}
+
+	return &method, nil
 }

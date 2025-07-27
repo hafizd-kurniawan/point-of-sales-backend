@@ -11,6 +11,7 @@ const (
 	PaymentTransfer PaymentMethod = "transfer"
 	PaymentCheck    PaymentMethod = "check"
 	PaymentCredit   PaymentMethod = "credit"
+	PaymentMixed    PaymentMethod = "mixed"
 )
 
 type TransactionStatus string
@@ -20,7 +21,15 @@ const (
 	TransactionCancelled TransactionStatus = "cancelled"
 )
 
-// SalesTransaction - Sesuai ERD Original
+type PaymentStatus string
+
+const (
+	PaymentCompleted PaymentStatus = "completed"
+	PaymentPending   PaymentStatus = "pending"
+	PaymentOverdue   PaymentStatus = "overdue"
+)
+
+// SalesTransaction - Enhanced with installment support
 type SalesTransaction struct {
 	ID                int               `json:"id" db:"id"`
 	TransactionNumber string            `json:"transaction_number" db:"transaction_number"`
@@ -38,6 +47,18 @@ type SalesTransaction struct {
 	Status            TransactionStatus `json:"status" db:"status"`
 	Notes             string            `json:"notes" db:"notes"`
 	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
+
+	// Installment fields
+	DownPayment       float64       `json:"down_payment" db:"down_payment"`
+	RemainingAmount   float64       `json:"remaining_amount" db:"remaining_amount"`
+	PaymentStatus     PaymentStatus `json:"payment_status" db:"payment_status"`
+	InstallmentPlan   string        `json:"installment_plan" db:"installment_plan"`
+	InstallmentMonths int           `json:"installment_months" db:"installment_months"`
+	MonthlyPayment    float64       `json:"monthly_payment" db:"monthly_payment"`
+	InterestRate      float64       `json:"interest_rate" db:"interest_rate"`
+	BankName          string        `json:"bank_name" db:"bank_name"`
+	LoanReference     string        `json:"loan_reference" db:"loan_reference"`
+	DownPaymentDate   *time.Time    `json:"down_payment_date" db:"down_payment_date"`
 
 	// Relations (populated dengan joins)
 	Customer *Customer `json:"customer,omitempty"`
@@ -79,6 +100,13 @@ type CreateSalesTransactionRequest struct {
 	PaymentMethod    PaymentMethod `json:"payment_method" validate:"required"`
 	PaymentReference string        `json:"payment_reference,omitempty"`
 	Notes            string        `json:"notes,omitempty"`
+
+	// Installment fields (optional, required for credit/mixed)
+	DownPayment       float64 `json:"down_payment,omitempty"`
+	InstallmentMonths int     `json:"installment_months,omitempty"`
+	InterestRate      float64 `json:"interest_rate,omitempty"`
+	BankName          string  `json:"bank_name,omitempty"`
+	LoanReference     string  `json:"loan_reference,omitempty"`
 }
 
 type CreatePurchaseTransactionRequest struct {
@@ -167,4 +195,82 @@ type CashierPerformance struct {
 	TotalProfit               float64 `json:"total_profit"`
 	AverageSalesTicket        float64 `json:"average_sales_ticket"`
 	AveragePurchaseTicket     float64 `json:"average_purchase_ticket"`
+}
+
+// ==================== INSTALLMENT SYSTEM ENTITIES ====================
+
+type InstallmentStatus string
+
+const (
+	InstallmentPending InstallmentStatus = "pending"
+	InstallmentPaid    InstallmentStatus = "paid"
+	InstallmentOverdue InstallmentStatus = "overdue"
+	InstallmentPartial InstallmentStatus = "partial"
+)
+
+type PaymentInstallment struct {
+	ID                 int               `json:"id" db:"id"`
+	SalesTransactionID int               `json:"sales_transaction_id" db:"sales_transaction_id"`
+	InstallmentNumber  int               `json:"installment_number" db:"installment_number"`
+	DueDate            time.Time         `json:"due_date" db:"due_date"`
+	Amount             float64           `json:"amount" db:"amount"`
+	PaidAmount         float64           `json:"paid_amount" db:"paid_amount"`
+	PaidDate           *time.Time        `json:"paid_date" db:"paid_date"`
+	Status             InstallmentStatus `json:"status" db:"status"`
+	LateFee            float64           `json:"late_fee" db:"late_fee"`
+	CreatedAt          time.Time         `json:"created_at" db:"created_at"`
+
+	// Relations
+	SalesTransaction *SalesTransaction `json:"sales_transaction,omitempty"`
+}
+
+type PaymentMethodConfig struct {
+	ID                        int     `json:"id" db:"id"`
+	MethodName                string  `json:"method_name" db:"method_name"`
+	DisplayName               string  `json:"display_name" db:"display_name"`
+	RequiresDownPayment       bool    `json:"requires_down_payment" db:"requires_down_payment"`
+	MinDownPaymentPercentage  float64 `json:"min_down_payment_percentage" db:"min_down_payment_percentage"`
+	MaxInstallmentMonths      int     `json:"max_installment_months" db:"max_installment_months"`
+	IsActive                  bool    `json:"is_active" db:"is_active"`
+	CreatedAt                 time.Time `json:"created_at" db:"created_at"`
+}
+
+// ==================== NEW REQUEST/RESPONSE DTOs ====================
+
+type PayInstallmentRequest struct {
+	Amount float64 `json:"amount" validate:"required,gt=0"`
+	Notes  string  `json:"notes,omitempty"`
+}
+
+type PaymentPreviewRequest struct {
+	TotalAmount       float64       `json:"total_amount" validate:"required,gt=0"`
+	PaymentMethod     PaymentMethod `json:"payment_method" validate:"required"`
+	DownPayment       float64       `json:"down_payment,omitempty"`
+	InstallmentMonths int           `json:"installment_months,omitempty"`
+	InterestRate      float64       `json:"interest_rate,omitempty"`
+}
+
+type PaymentPreviewResponse struct {
+	TotalAmount        float64                `json:"total_amount"`
+	DownPayment        float64                `json:"down_payment"`
+	RemainingAmount    float64                `json:"remaining_amount"`
+	InstallmentMonths  int                    `json:"installment_months"`
+	MonthlyPayment     float64                `json:"monthly_payment"`
+	TotalWithInterest  float64                `json:"total_with_interest"`
+	InterestRate       float64                `json:"interest_rate"`
+	InterestAmount     float64                `json:"interest_amount"`
+	InstallmentPreview []InstallmentPreview   `json:"installment_preview"`
+	IsValid            bool                   `json:"is_valid"`
+	ValidationErrors   []string               `json:"validation_errors,omitempty"`
+}
+
+type InstallmentPreview struct {
+	InstallmentNumber int       `json:"installment_number"`
+	DueDate           time.Time `json:"due_date"`
+	Amount            float64   `json:"amount"`
+}
+
+type UpdateInstallmentStatusRequest struct {
+	Status InstallmentStatus `json:"status" validate:"required"`
+	Notes  string            `json:"notes,omitempty"`
 }

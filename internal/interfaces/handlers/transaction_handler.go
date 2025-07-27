@@ -608,3 +608,186 @@ func (h *TransactionHandler) CancelPurchaseTransaction(c *gin.Context) {
 
 	response.Success(c, "Purchase transaction cancelled successfully", nil)
 }
+
+// ==================== INSTALLMENT ENDPOINTS ====================
+
+// @Summary Get transaction installments
+// @Description Get installment schedule for a specific sales transaction
+// @Tags Installments
+// @Accept json
+// @Produce json
+// @Param id path int true "Transaction ID"
+// @Success 200 {object} response.Response{data=[]entities.PaymentInstallment}
+// @Failure 404 {object} response.Response
+// @Failure 500 {object} response.Response
+// @Router /api/sales/transactions/{id}/installments [get]
+func (h *TransactionHandler) GetTransactionInstallments(c *gin.Context) {
+	idParam := c.Param("id")
+	id, err := strconv.Atoi(idParam)
+	if err != nil {
+		response.BadRequest(c, "Invalid transaction ID", err)
+		return
+	}
+
+	installments, err := h.transactionUsecase.GetTransactionInstallments(id)
+	if err != nil {
+		response.NotFound(c, "Transaction installments not found")
+		return
+	}
+
+	response.Success(c, "Transaction installments retrieved successfully", installments)
+}
+
+// @Summary Pay installment
+// @Description Make a payment towards a specific installment
+// @Tags Installments
+// @Accept json
+// @Produce json
+// @Param transactionId path int true "Transaction ID"
+// @Param installmentId path int true "Installment ID"
+// @Param payment body entities.PayInstallmentRequest true "Payment data"
+// @Success 200 {object} response.Response
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Router /api/sales/transactions/{transactionId}/installments/{installmentId}/pay [post]
+func (h *TransactionHandler) PayInstallment(c *gin.Context) {
+	installmentIDParam := c.Param("installmentId")
+	installmentID, err := strconv.Atoi(installmentIDParam)
+	if err != nil {
+		response.BadRequest(c, "Invalid installment ID", err)
+		return
+	}
+
+	var req entities.PayInstallmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request format", err)
+		return
+	}
+
+	err = h.transactionUsecase.PayInstallment(installmentID, &req)
+	if err != nil {
+		response.BadRequest(c, "Failed to process installment payment", err)
+		return
+	}
+
+	response.Success(c, "Installment payment processed successfully", nil)
+}
+
+// @Summary Get overdue installments
+// @Description Get list of overdue installments across all transactions
+// @Tags Installments
+// @Accept json
+// @Produce json
+// @Param page query int false "Page number" default(1)
+// @Param limit query int false "Items per page" default(10)
+// @Success 200 {object} response.PaginatedResponse{data=[]entities.PaymentInstallment}
+// @Failure 400 {object} response.Response
+// @Failure 500 {object} response.Response
+// @Router /api/sales/installments/overdue [get]
+func (h *TransactionHandler) GetOverdueInstallments(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	installments, total, err := h.transactionUsecase.GetOverdueInstallments(page, limit)
+	if err != nil {
+		response.InternalServerError(c, "Failed to get overdue installments", err)
+		return
+	}
+
+	totalPages := (total + limit - 1) / limit
+	meta := response.PaginationMeta{
+		Page:       page,
+		Limit:      limit,
+		TotalRows:  total,
+		TotalPages: totalPages,
+	}
+
+	response.Paginated(c, "Overdue installments retrieved successfully", installments, meta)
+}
+
+// @Summary Update installment status
+// @Description Update the status of a specific installment
+// @Tags Installments
+// @Accept json
+// @Produce json
+// @Param id path int true "Installment ID"
+// @Param status body entities.UpdateInstallmentStatusRequest true "Status update data"
+// @Success 200 {object} response.Response
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Router /api/sales/installments/{id}/status [patch]
+func (h *TransactionHandler) UpdateInstallmentStatus(c *gin.Context) {
+	idParam := c.Param("id")
+	id, err := strconv.Atoi(idParam)
+	if err != nil {
+		response.BadRequest(c, "Invalid installment ID", err)
+		return
+	}
+
+	var req entities.UpdateInstallmentStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request format", err)
+		return
+	}
+
+	err = h.transactionUsecase.UpdateInstallmentStatus(id, &req)
+	if err != nil {
+		response.BadRequest(c, "Failed to update installment status", err)
+		return
+	}
+
+	response.Success(c, "Installment status updated successfully", nil)
+}
+
+// ==================== PAYMENT METHOD ENDPOINTS ====================
+
+// @Summary Get payment methods
+// @Description Get list of available payment methods with their configurations
+// @Tags Payment Methods
+// @Accept json
+// @Produce json
+// @Success 200 {object} response.Response{data=[]entities.PaymentMethodConfig}
+// @Failure 500 {object} response.Response
+// @Router /api/sales/payment-methods [get]
+func (h *TransactionHandler) GetPaymentMethods(c *gin.Context) {
+	methods, err := h.transactionUsecase.GetPaymentMethods()
+	if err != nil {
+		response.InternalServerError(c, "Failed to get payment methods", err)
+		return
+	}
+
+	response.Success(c, "Payment methods retrieved successfully", methods)
+}
+
+// @Summary Get payment preview
+// @Description Calculate payment preview including installment schedule
+// @Tags Payment Methods
+// @Accept json
+// @Produce json
+// @Param preview body entities.PaymentPreviewRequest true "Payment preview request"
+// @Success 200 {object} response.Response{data=entities.PaymentPreviewResponse}
+// @Failure 400 {object} response.Response
+// @Failure 500 {object} response.Response
+// @Router /api/sales/payment-preview [post]
+func (h *TransactionHandler) GetPaymentPreview(c *gin.Context) {
+	var req entities.PaymentPreviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request format", err)
+		return
+	}
+
+	preview, err := h.transactionUsecase.GetPaymentPreview(&req)
+	if err != nil {
+		response.InternalServerError(c, "Failed to calculate payment preview", err)
+		return
+	}
+
+	response.Success(c, "Payment preview calculated successfully", preview)
+}

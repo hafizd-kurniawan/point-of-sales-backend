@@ -21,6 +21,16 @@ type TransactionUsecase interface {
 	UpdatePurchaseTransaction(id int, req *entities.UpdateTransactionRequest) (*entities.PurchaseTransaction, error)
 	CancelPurchaseTransaction(id int, reason string) error
 
+	// Installment Management
+	GetTransactionInstallments(transactionID int) ([]entities.PaymentInstallment, error)
+	PayInstallment(installmentID int, req *entities.PayInstallmentRequest) error
+	GetOverdueInstallments(page, limit int) ([]entities.PaymentInstallment, int, error)
+	UpdateInstallmentStatus(installmentID int, req *entities.UpdateInstallmentStatusRequest) error
+
+	// Payment Methods & Preview
+	GetPaymentMethods() ([]entities.PaymentMethodConfig, error)
+	GetPaymentPreview(req *entities.PaymentPreviewRequest) (*entities.PaymentPreviewResponse, error)
+
 	// Analytics & Reports
 	GetTransactionStatistics(salesFilter *entities.SalesTransactionFilter, purchaseFilter *entities.PurchaseTransactionFilter) (*entities.TransactionStatistics, error)
 	GetDailyReport(date string) (*DailyReport, error)
