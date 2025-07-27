@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: vehicle_showroom_db
+    environment:
+      POSTGRES_DB: vehicle_showroom
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./internal/infrastructure/database/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - vehicle_showroom_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: vehicle_showroom_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - vehicle_showroom_network
+
+volumes:
+  postgres_data:
+
+networks:
+  vehicle_showroom_network:
+    driver: bridge

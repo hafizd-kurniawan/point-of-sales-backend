@@ -1,0 +1,170 @@
+package entities
+
+import (
+	"time"
+)
+
+type PaymentMethod string
+
+const (
+	PaymentCash     PaymentMethod = "cash"
+	PaymentTransfer PaymentMethod = "transfer"
+	PaymentCheck    PaymentMethod = "check"
+	PaymentCredit   PaymentMethod = "credit"
+)
+
+type TransactionStatus string
+
+const (
+	TransactionCompleted TransactionStatus = "completed"
+	TransactionCancelled TransactionStatus = "cancelled"
+)
+
+// SalesTransaction - Sesuai ERD Original
+type SalesTransaction struct {
+	ID                int               `json:"id" db:"id"`
+	TransactionNumber string            `json:"transaction_number" db:"transaction_number"`
+	InvoiceNumber     string            `json:"invoice_number" db:"invoice_number"`
+	VehicleID         int               `json:"vehicle_id" db:"vehicle_id"`
+	CustomerID        int               `json:"customer_id" db:"customer_id"`
+	VehiclePrice      float64           `json:"vehicle_price" db:"vehicle_price"`
+	TaxAmount         float64           `json:"tax_amount" db:"tax_amount"`
+	DiscountAmount    float64           `json:"discount_amount" db:"discount_amount"`
+	TotalAmount       float64           `json:"total_amount" db:"total_amount"`
+	PaymentMethod     PaymentMethod     `json:"payment_method" db:"payment_method"`
+	PaymentReference  string            `json:"payment_reference" db:"payment_reference"`
+	TransactionDate   time.Time         `json:"transaction_date" db:"transaction_date"`
+	CashierID         int               `json:"cashier_id" db:"cashier_id"`
+	Status            TransactionStatus `json:"status" db:"status"`
+	Notes             string            `json:"notes" db:"notes"`
+	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
+
+	// Relations (populated dengan joins)
+	Customer *Customer `json:"customer,omitempty"`
+	Vehicle  *Vehicle  `json:"vehicle,omitempty"`
+	Cashier  *User     `json:"cashier,omitempty"`
+}
+
+// PurchaseTransaction - Sesuai ERD Original (beli dari customer)
+type PurchaseTransaction struct {
+	ID                int               `json:"id" db:"id"`
+	TransactionNumber string            `json:"transaction_number" db:"transaction_number"`
+	InvoiceNumber     string            `json:"invoice_number" db:"invoice_number"`
+	VehicleID         int               `json:"vehicle_id" db:"vehicle_id"`
+	CustomerID        int               `json:"customer_id" db:"customer_id"`
+	VehiclePrice      float64           `json:"vehicle_price" db:"vehicle_price"`
+	TaxAmount         float64           `json:"tax_amount" db:"tax_amount"`
+	TotalAmount       float64           `json:"total_amount" db:"total_amount"`
+	PaymentMethod     PaymentMethod     `json:"payment_method" db:"payment_method"`
+	PaymentReference  string            `json:"payment_reference" db:"payment_reference"`
+	TransactionDate   time.Time         `json:"transaction_date" db:"transaction_date"`
+	CashierID         int               `json:"cashier_id" db:"cashier_id"`
+	Status            TransactionStatus `json:"status" db:"status"`
+	Notes             string            `json:"notes" db:"notes"`
+	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
+
+	// Relations
+	Customer *Customer `json:"customer,omitempty"`
+	Vehicle  *Vehicle  `json:"vehicle,omitempty"`
+	Cashier  *User     `json:"cashier,omitempty"`
+}
+
+// Request DTOs
+type CreateSalesTransactionRequest struct {
+	VehicleID        int           `json:"vehicle_id" validate:"required"`
+	CustomerID       int           `json:"customer_id" validate:"required"`
+	VehiclePrice     float64       `json:"vehicle_price" validate:"required,gt=0"`
+	TaxAmount        float64       `json:"tax_amount,omitempty"`
+	DiscountAmount   float64       `json:"discount_amount,omitempty"`
+	PaymentMethod    PaymentMethod `json:"payment_method" validate:"required"`
+	PaymentReference string        `json:"payment_reference,omitempty"`
+	Notes            string        `json:"notes,omitempty"`
+}
+
+type CreatePurchaseTransactionRequest struct {
+	VehicleID        int           `json:"vehicle_id" validate:"required"`
+	CustomerID       int           `json:"customer_id" validate:"required"`
+	VehiclePrice     float64       `json:"vehicle_price" validate:"required,gt=0"`
+	TaxAmount        float64       `json:"tax_amount,omitempty"`
+	PaymentMethod    PaymentMethod `json:"payment_method" validate:"required"`
+	PaymentReference string        `json:"payment_reference,omitempty"`
+	Notes            string        `json:"notes,omitempty"`
+}
+
+type UpdateTransactionRequest struct {
+	Status TransactionStatus `json:"status,omitempty"`
+	Notes  string            `json:"notes,omitempty"`
+}
+
+// Filter DTOs
+type SalesTransactionFilter struct {
+	CustomerID    *int               `json:"customer_id,omitempty"`
+	VehicleID     *int               `json:"vehicle_id,omitempty"`
+	CashierID     *int               `json:"cashier_id,omitempty"`
+	Status        *TransactionStatus `json:"status,omitempty"`
+	PaymentMethod *PaymentMethod     `json:"payment_method,omitempty"`
+	DateFrom      *time.Time         `json:"date_from,omitempty"`
+	DateTo        *time.Time         `json:"date_to,omitempty"`
+	MinAmount     *float64           `json:"min_amount,omitempty"`
+	MaxAmount     *float64           `json:"max_amount,omitempty"`
+}
+
+type PurchaseTransactionFilter struct {
+	CustomerID    *int               `json:"customer_id,omitempty"`
+	VehicleID     *int               `json:"vehicle_id,omitempty"`
+	CashierID     *int               `json:"cashier_id,omitempty"`
+	Status        *TransactionStatus `json:"status,omitempty"`
+	PaymentMethod *PaymentMethod     `json:"payment_method,omitempty"`
+	DateFrom      *time.Time         `json:"date_from,omitempty"`
+	DateTo        *time.Time         `json:"date_to,omitempty"`
+	MinAmount     *float64           `json:"min_amount,omitempty"`
+	MaxAmount     *float64           `json:"max_amount,omitempty"`
+}
+
+// Statistics DTOs
+type TransactionStatistics struct {
+	// Sales Statistics
+	TotalSalesTransactions  int     `json:"total_sales_transactions"`
+	TotalSalesRevenue       float64 `json:"total_sales_revenue"`
+	CompletedSales          int     `json:"completed_sales"`
+	CancelledSales          int     `json:"cancelled_sales"`
+	AverageSalesTransaction float64 `json:"average_sales_transaction"`
+
+	// Purchase Statistics
+	TotalPurchaseTransactions  int     `json:"total_purchase_transactions"`
+	TotalPurchaseCost          float64 `json:"total_purchase_cost"`
+	CompletedPurchases         int     `json:"completed_purchases"`
+	CancelledPurchases         int     `json:"cancelled_purchases"`
+	AveragePurchaseTransaction float64 `json:"average_purchase_transaction"`
+
+	// Profitability
+	TotalProfit  float64 `json:"total_profit"`
+	ProfitMargin float64 `json:"profit_margin"`
+
+	// Breakdowns
+	SalesPaymentMethodBreakdown    map[string]float64   `json:"sales_payment_method_breakdown"`
+	PurchasePaymentMethodBreakdown map[string]float64   `json:"purchase_payment_method_breakdown"`
+	DailyRevenue                   []DailyRevenue       `json:"daily_revenue"`
+	TopCashiers                    []CashierPerformance `json:"top_cashiers"`
+}
+
+type DailyRevenue struct {
+	Date          string  `json:"date"`
+	SalesRevenue  float64 `json:"sales_revenue"`
+	PurchaseCost  float64 `json:"purchase_cost"`
+	Profit        float64 `json:"profit"`
+	SalesCount    int     `json:"sales_count"`
+	PurchaseCount int     `json:"purchase_count"`
+}
+
+type CashierPerformance struct {
+	CashierID                 int     `json:"cashier_id"`
+	CashierName               string  `json:"cashier_name"`
+	TotalSalesTransactions    int     `json:"total_sales_transactions"`
+	TotalPurchaseTransactions int     `json:"total_purchase_transactions"`
+	TotalSalesRevenue         float64 `json:"total_sales_revenue"`
+	TotalPurchaseCost         float64 `json:"total_purchase_cost"`
+	TotalProfit               float64 `json:"total_profit"`
+	AverageSalesTicket        float64 `json:"average_sales_ticket"`
+	AveragePurchaseTicket     float64 `json:"average_purchase_ticket"`
+}
