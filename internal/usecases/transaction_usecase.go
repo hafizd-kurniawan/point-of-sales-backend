@@ -26,6 +26,14 @@ type TransactionUsecase interface {
 	GetDailyReport(date string) (*DailyReport, error)
 	GetMonthlyReport(year int, month int) (*MonthlyReport, error)
 	GetCashierPerformance(cashierID int, year *int) (*entities.CashierPerformance, error)
+
+	// Installment Management
+	GetTransactionInstallments(transactionID int) ([]entities.Installment, error)
+	GetInstallmentByID(id int) (*entities.Installment, error)
+	GetOverdueInstallments(page, limit int) ([]entities.Installment, int, error)
+	PayInstallment(installmentID int, paymentAmount float64, paymentMethod, paymentReference, notes string) error
+	UpdateInstallmentStatus(id int, status string, notes string, waivedBy *int) error
+	GetInstallmentStats() (*entities.InstallmentStats, error)
 }
 
 // Additional DTOs for reports

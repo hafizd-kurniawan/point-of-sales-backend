@@ -761,18 +761,10 @@ func (h *TransactionHandler) GetTransactionInstallments(c *gin.Context) {
 
 	// For now, return a mock installment schedule
 	// In a real implementation, this would query the database for actual installments
-	installments := []entities.Installment{
-		{
-			ID:                1,
-			TransactionID:     id,
-			InstallmentNumber: 1,
-			DueDate:           time.Now().AddDate(0, 1, 0),
-			Amount:            1000000,
-			PaidAmount:        0,
-			Status:            entities.InstallmentPending,
-			CreatedAt:         time.Now(),
-			UpdatedAt:         time.Now(),
-		},
+	installments, err := h.transactionUsecase.GetTransactionInstallments(id)
+	if err != nil {
+		response.InternalServerError(c, err.Error(), nil)
+		return
 	}
 
 	response.Success(c, "Transaction installments retrieved successfully", installments)
@@ -792,14 +784,7 @@ func (h *TransactionHandler) GetTransactionInstallments(c *gin.Context) {
 // @Failure 500 {object} response.Response
 // @Router /api/sales/transactions/{id}/installments/{installmentId}/pay [post]
 func (h *TransactionHandler) PayInstallment(c *gin.Context) {
-	idParam := c.Param("id")
 	installmentIdParam := c.Param("installmentId")
-
-	transactionID, err := strconv.Atoi(idParam)
-	if err != nil {
-		response.BadRequest(c, "Invalid transaction ID", err)
-		return
-	}
 
 	installmentID, err := strconv.Atoi(installmentIdParam)
 	if err != nil {
@@ -822,30 +807,18 @@ func (h *TransactionHandler) PayInstallment(c *gin.Context) {
 		return
 	}
 
-	// For now, return a mock response
-	// In a real implementation, this would:
-	// 1. Validate the installment exists and belongs to the transaction
-	// 2. Update the installment payment status
-	// 3. Record the payment details
-	// 4. Update any related transaction status if fully paid
+	// Process installment payment
+	err = h.transactionUsecase.PayInstallment(installmentID, req.PaymentAmount, req.PaymentMethod, req.PaymentReference, req.Notes)
+	if err != nil {
+		response.BadRequest(c, err.Error(), err)
+		return
+	}
 
-	paymentMethod := entities.PaymentMethod(req.PaymentMethod)
-	now := time.Now()
-
-	installment := entities.Installment{
-		ID:                installmentID,
-		TransactionID:     transactionID,
-		InstallmentNumber: 1,
-		DueDate:           time.Now().AddDate(0, 1, 0),
-		Amount:            req.PaymentAmount,
-		PaidAmount:        req.PaymentAmount,
-		Status:            entities.InstallmentPaid,
-		PaidAt:            &now,
-		PaymentMethod:     &paymentMethod,
-		PaymentReference:  req.PaymentReference,
-		Notes:             req.Notes,
-		CreatedAt:         time.Now(),
-		UpdatedAt:         now,
+	// Get updated installment details
+	installment, err := h.transactionUsecase.GetInstallmentByID(installmentID)
+	if err != nil {
+		response.InternalServerError(c, err.Error(), nil)
+		return
 	}
 
 	response.Success(c, "Installment payment processed successfully", installment)
@@ -878,21 +851,12 @@ func (h *TransactionHandler) GetOverdueInstallments(c *gin.Context) {
 	// In a real implementation, this would query for installments where:
 	// - status = 'pending'
 	// - due_date < current_date
-	overdueInstallments := []entities.Installment{
-		{
-			ID:                1,
-			TransactionID:     1,
-			InstallmentNumber: 1,
-			DueDate:           time.Now().AddDate(0, -1, 0), // 1 month overdue
-			Amount:            1000000,
-			PaidAmount:        0,
-			Status:            entities.InstallmentOverdue,
-			CreatedAt:         time.Now().AddDate(0, -2, 0),
-			UpdatedAt:         time.Now(),
-		},
+	overdueInstallments, total, err := h.transactionUsecase.GetOverdueInstallments(page, limit)
+	if err != nil {
+		response.InternalServerError(c, err.Error(), nil)
+		return
 	}
 
-	total := len(overdueInstallments)
 	totalPages := (total + limit - 1) / limit
 	meta := response.PaginationMeta{
 		Page:       page,
@@ -949,26 +913,18 @@ func (h *TransactionHandler) UpdateInstallmentStatus(c *gin.Context) {
 		}
 	}
 
-	// For now, return a mock response
-	// In a real implementation, this would:
-	// 1. Validate the installment exists
-	// 2. Update the installment status
-	// 3. Record who made the change (for waiving)
-	// 4. Update timestamps
+	// Update installment status
+	err = h.transactionUsecase.UpdateInstallmentStatus(id, req.Status, req.Notes, waivedBy)
+	if err != nil {
+		response.BadRequest(c, err.Error(), err)
+		return
+	}
 
-	now := time.Now()
-	installment := entities.Installment{
-		ID:                id,
-		TransactionID:     1,
-		InstallmentNumber: 1,
-		DueDate:           time.Now().AddDate(0, 1, 0),
-		Amount:            1000000,
-		PaidAmount:        0,
-		Status:            entities.InstallmentStatus(req.Status),
-		Notes:             req.Notes,
-		WaivedBy:          waivedBy,
-		CreatedAt:         time.Now().AddDate(0, -1, 0),
-		UpdatedAt:         now,
+	// Get updated installment details
+	installment, err := h.transactionUsecase.GetInstallmentByID(id)
+	if err != nil {
+		response.InternalServerError(c, err.Error(), nil)
+		return
 	}
 
 	response.Success(c, "Installment status updated successfully", installment)
@@ -989,15 +945,10 @@ func (h *TransactionHandler) GetInstallmentStats(c *gin.Context) {
 	// 2. Calculate aggregated metrics
 	// 3. Return comprehensive statistics
 
-	stats := entities.InstallmentStats{
-		TotalInstallments:     150,
-		PendingCount:          25,
-		OverdueCount:          8,
-		PaidCount:             117,
-		TotalPendingAmount:    125000000,
-		TotalOverdueAmount:    45000000,
-		OverduePercentage:     5.33,
-		CollectionRate:        78.0,
+	stats, err := h.transactionUsecase.GetInstallmentStats()
+	if err != nil {
+		response.InternalServerError(c, err.Error(), nil)
+		return
 	}
 
 	response.Success(c, "Installment statistics retrieved successfully", stats)

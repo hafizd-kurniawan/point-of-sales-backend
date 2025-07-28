@@ -235,6 +235,11 @@ type Installment struct {
 	WaivedBy          *int              `json:"waived_by" db:"waived_by"`
 	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at" db:"updated_at"`
+
+	// Relations for management screens
+	Transaction *SalesTransaction `json:"transaction,omitempty"`
+	Customer    *Customer         `json:"customer,omitempty"`
+	WaivedByUser *User            `json:"waived_by_user,omitempty"`
 }
 
 type InstallmentStats struct {

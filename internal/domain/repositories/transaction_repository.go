@@ -27,4 +27,12 @@ type TransactionRepository interface {
 	GetTransactionStatistics(salesFilter *entities.SalesTransactionFilter, purchaseFilter *entities.PurchaseTransactionFilter) (*entities.TransactionStatistics, error)
 	GetDailyRevenue(year int, month int) ([]entities.DailyRevenue, error)
 	GetTopCashiers(limit int, year *int) ([]entities.CashierPerformance, error)
+
+	// Installment Management
+	GetTransactionInstallments(transactionID int) ([]entities.Installment, error)
+	GetInstallmentByID(id int) (*entities.Installment, error)
+	GetOverdueInstallments(limit, offset int) ([]entities.Installment, int, error)
+	PayInstallment(installmentID int, paymentAmount float64, paymentMethod, paymentReference, notes string) error
+	UpdateInstallmentStatus(id int, status string, notes string, waivedBy *int) error
+	GetInstallmentStats() (*entities.InstallmentStats, error)
 }
