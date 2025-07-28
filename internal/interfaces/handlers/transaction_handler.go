@@ -608,3 +608,368 @@ func (h *TransactionHandler) CancelPurchaseTransaction(c *gin.Context) {
 
 	response.Success(c, "Purchase transaction cancelled successfully", nil)
 }
+
+// ==================== PAYMENT AND INSTALLMENT ENDPOINTS ====================
+
+// @Summary Get payment methods
+// @Description Get available payment methods with their details
+// @Tags Payment
+// @Accept json
+// @Produce json
+// @Success 200 {object} response.Response{data=[]entities.PaymentMethodResponse}
+// @Failure 500 {object} response.Response
+// @Router /api/sales/payment-methods [get]
+func (h *TransactionHandler) GetPaymentMethods(c *gin.Context) {
+	paymentMethods := []entities.PaymentMethodResponse{
+		{
+			Method:            "cash",
+			DisplayName:       "Cash",
+			RequiresReference: false,
+			Description:       "Cash payment - full amount due immediately",
+		},
+		{
+			Method:            "transfer",
+			DisplayName:       "Bank Transfer",
+			RequiresReference: true,
+			Description:       "Bank transfer payment - requires reference number",
+		},
+		{
+			Method:            "check",
+			DisplayName:       "Check",
+			RequiresReference: true,
+			Description:       "Check payment - requires check number",
+		},
+		{
+			Method:            "credit",
+			DisplayName:       "Credit/Installment",
+			MinDownPayment:    func() *float64 { v := 0.20; return &v }(), // 20% minimum
+			RequiresReference: false,
+			Description:       "Credit payment with installments - requires 20% down payment",
+		},
+		{
+			Method:            "mixed",
+			DisplayName:       "Mixed Payment",
+			RequiresReference: false,
+			Description:       "Combination of multiple payment methods",
+		},
+	}
+
+	response.Success(c, "Payment methods retrieved successfully", paymentMethods)
+}
+
+// @Summary Get payment preview
+// @Description Calculate payment preview and breakdown
+// @Tags Payment
+// @Accept json
+// @Produce json
+// @Param preview body entities.PaymentPreviewRequest true "Payment preview data"
+// @Success 200 {object} response.Response{data=entities.PaymentPreviewResponse}
+// @Failure 400 {object} response.Response
+// @Failure 500 {object} response.Response
+// @Router /api/sales/payment-preview [post]
+func (h *TransactionHandler) GetPaymentPreview(c *gin.Context) {
+	var req entities.PaymentPreviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request format", err)
+		return
+	}
+
+	// Validate payment method
+	switch req.PaymentMethod {
+	case "cash", "transfer", "check":
+		// For these methods, full payment is required
+		req.InstallmentMonths = 0
+		req.DownPayment = req.TotalAmount
+	case "credit":
+		// Credit requires minimum 20% down payment
+		minDownPayment := req.TotalAmount * 0.20
+		if req.DownPayment < minDownPayment {
+			response.BadRequest(c, fmt.Sprintf("Credit payment requires minimum %.2f%% down payment (%.2f)", 20.0, minDownPayment), nil)
+			return
+		}
+		if req.InstallmentMonths <= 0 {
+			response.BadRequest(c, "Credit payment requires installment months", nil)
+			return
+		}
+	case "mixed":
+		// Mixed allows flexible down payment and installments
+		if req.DownPayment < 0 {
+			response.BadRequest(c, "Down payment cannot be negative", nil)
+			return
+		}
+	default:
+		response.BadRequest(c, "Invalid payment method", nil)
+		return
+	}
+
+	// Calculate payment details
+	remainingAmount := req.TotalAmount - req.DownPayment
+	var monthlyPayment, totalInterest, totalWithInterest float64
+
+	if req.InstallmentMonths > 0 && remainingAmount > 0 {
+		// Calculate monthly payment with interest
+		monthlyInterestRate := req.InterestRate / 100 / 12 // Convert annual percentage to monthly decimal
+
+		if monthlyInterestRate > 0 {
+			// Standard loan payment formula: PMT = P * [r(1+r)^n] / [(1+r)^n - 1]
+			pow := 1.0
+			for i := 0; i < req.InstallmentMonths; i++ {
+				pow *= (1 + monthlyInterestRate)
+			}
+			monthlyPayment = remainingAmount * (monthlyInterestRate * pow) / (pow - 1)
+		} else {
+			// No interest
+			monthlyPayment = remainingAmount / float64(req.InstallmentMonths)
+		}
+
+		totalWithInterest = monthlyPayment * float64(req.InstallmentMonths)
+		totalInterest = totalWithInterest - remainingAmount
+	}
+
+	preview := entities.PaymentPreviewResponse{
+		TotalAmount:       req.TotalAmount,
+		DownPayment:       req.DownPayment,
+		RemainingAmount:   remainingAmount,
+		InstallmentMonths: req.InstallmentMonths,
+		MonthlyPayment:    monthlyPayment,
+		InterestRate:      req.InterestRate,
+		TotalInterest:     totalInterest,
+		TotalWithInterest: totalWithInterest,
+	}
+
+	response.Success(c, "Payment preview calculated successfully", preview)
+}
+
+// @Summary Get transaction installments
+// @Description Get installment schedule for a transaction
+// @Tags Installments
+// @Accept json
+// @Produce json
+// @Param id path int true "Transaction ID"
+// @Success 200 {object} response.Response{data=[]entities.Installment}
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Failure 500 {object} response.Response
+// @Router /api/sales/transactions/{id}/installments [get]
+func (h *TransactionHandler) GetTransactionInstallments(c *gin.Context) {
+	idParam := c.Param("id")
+	id, err := strconv.Atoi(idParam)
+	if err != nil {
+		response.BadRequest(c, "Invalid transaction ID", err)
+		return
+	}
+
+	// For now, return a mock installment schedule
+	// In a real implementation, this would query the database for actual installments
+	installments := []entities.Installment{
+		{
+			ID:                1,
+			TransactionID:     id,
+			InstallmentNumber: 1,
+			DueDate:           time.Now().AddDate(0, 1, 0),
+			Amount:            1000000,
+			PaidAmount:        0,
+			Status:            entities.InstallmentPending,
+			CreatedAt:         time.Now(),
+			UpdatedAt:         time.Now(),
+		},
+	}
+
+	response.Success(c, "Transaction installments retrieved successfully", installments)
+}
+
+// @Summary Pay installment
+// @Description Process installment payment
+// @Tags Installments
+// @Accept json
+// @Produce json
+// @Param id path int true "Transaction ID"
+// @Param installmentId path int true "Installment ID"
+// @Param payment body entities.PayInstallmentRequest true "Payment data"
+// @Success 200 {object} response.Response{data=entities.Installment}
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Failure 500 {object} response.Response
+// @Router /api/sales/transactions/{id}/installments/{installmentId}/pay [post]
+func (h *TransactionHandler) PayInstallment(c *gin.Context) {
+	idParam := c.Param("id")
+	installmentIdParam := c.Param("installmentId")
+
+	transactionID, err := strconv.Atoi(idParam)
+	if err != nil {
+		response.BadRequest(c, "Invalid transaction ID", err)
+		return
+	}
+
+	installmentID, err := strconv.Atoi(installmentIdParam)
+	if err != nil {
+		response.BadRequest(c, "Invalid installment ID", err)
+		return
+	}
+
+	var req entities.PayInstallmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request format", err)
+		return
+	}
+
+	// Validate payment method
+	switch req.PaymentMethod {
+	case "cash", "transfer", "check", "mixed":
+		// Valid payment methods for installments
+	default:
+		response.BadRequest(c, "Invalid payment method for installment", nil)
+		return
+	}
+
+	// For now, return a mock response
+	// In a real implementation, this would:
+	// 1. Validate the installment exists and belongs to the transaction
+	// 2. Update the installment payment status
+	// 3. Record the payment details
+	// 4. Update any related transaction status if fully paid
+
+	paymentMethod := entities.PaymentMethod(req.PaymentMethod)
+	now := time.Now()
+
+	installment := entities.Installment{
+		ID:                installmentID,
+		TransactionID:     transactionID,
+		InstallmentNumber: 1,
+		DueDate:           time.Now().AddDate(0, 1, 0),
+		Amount:            req.PaymentAmount,
+		PaidAmount:        req.PaymentAmount,
+		Status:            entities.InstallmentPaid,
+		PaidAt:            &now,
+		PaymentMethod:     &paymentMethod,
+		PaymentReference:  req.PaymentReference,
+		Notes:             req.Notes,
+		CreatedAt:         time.Now(),
+		UpdatedAt:         now,
+	}
+
+	response.Success(c, "Installment payment processed successfully", installment)
+}
+
+// @Summary Get overdue installments
+// @Description Get list of overdue installments
+// @Tags Installments
+// @Accept json
+// @Produce json
+// @Param page query int false "Page number" default(1)
+// @Param limit query int false "Items per page" default(10)
+// @Success 200 {object} response.PaginatedResponse{data=[]entities.Installment}
+// @Failure 400 {object} response.Response
+// @Failure 500 {object} response.Response
+// @Router /api/sales/installments/overdue [get]
+func (h *TransactionHandler) GetOverdueInstallments(c *gin.Context) {
+	// Parse pagination
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	// For now, return mock overdue installments
+	// In a real implementation, this would query for installments where:
+	// - status = 'pending'
+	// - due_date < current_date
+	overdueInstallments := []entities.Installment{
+		{
+			ID:                1,
+			TransactionID:     1,
+			InstallmentNumber: 1,
+			DueDate:           time.Now().AddDate(0, -1, 0), // 1 month overdue
+			Amount:            1000000,
+			PaidAmount:        0,
+			Status:            entities.InstallmentOverdue,
+			CreatedAt:         time.Now().AddDate(0, -2, 0),
+			UpdatedAt:         time.Now(),
+		},
+	}
+
+	total := len(overdueInstallments)
+	totalPages := (total + limit - 1) / limit
+	meta := response.PaginationMeta{
+		Page:       page,
+		Limit:      limit,
+		TotalRows:  total,
+		TotalPages: totalPages,
+	}
+
+	response.Paginated(c, "Overdue installments retrieved successfully", overdueInstallments, meta)
+}
+
+// @Summary Update installment status
+// @Description Update installment status (waive, etc.)
+// @Tags Installments
+// @Accept json
+// @Produce json
+// @Param id path int true "Installment ID"
+// @Param status body entities.UpdateInstallmentStatusRequest true "Status update data"
+// @Success 200 {object} response.Response{data=entities.Installment}
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Failure 500 {object} response.Response
+// @Router /api/sales/installments/{id}/status [patch]
+func (h *TransactionHandler) UpdateInstallmentStatus(c *gin.Context) {
+	idParam := c.Param("id")
+	id, err := strconv.Atoi(idParam)
+	if err != nil {
+		response.BadRequest(c, "Invalid installment ID", err)
+		return
+	}
+
+	var req entities.UpdateInstallmentStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request format", err)
+		return
+	}
+
+	// Validate status
+	switch req.Status {
+	case "pending", "paid", "overdue", "waived":
+		// Valid statuses
+	default:
+		response.BadRequest(c, "Invalid installment status", nil)
+		return
+	}
+
+	// Get user ID for waived operations
+	var waivedBy *int
+	if req.Status == "waived" {
+		if userID, exists := c.Get("user_id"); exists {
+			if uid, ok := userID.(int); ok {
+				waivedBy = &uid
+			}
+		}
+	}
+
+	// For now, return a mock response
+	// In a real implementation, this would:
+	// 1. Validate the installment exists
+	// 2. Update the installment status
+	// 3. Record who made the change (for waiving)
+	// 4. Update timestamps
+
+	now := time.Now()
+	installment := entities.Installment{
+		ID:                id,
+		TransactionID:     1,
+		InstallmentNumber: 1,
+		DueDate:           time.Now().AddDate(0, 1, 0),
+		Amount:            1000000,
+		PaidAmount:        0,
+		Status:            entities.InstallmentStatus(req.Status),
+		Notes:             req.Notes,
+		WaivedBy:          waivedBy,
+		CreatedAt:         time.Now().AddDate(0, -1, 0),
+		UpdatedAt:         now,
+	}
+
+	response.Success(c, "Installment status updated successfully", installment)
+}
