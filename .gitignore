@@ -1,0 +1,45 @@
+# Binaries
+server
+cmd/server/server
+cmd/migrate/migrate
+cmd/seeder/seeder
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Logs
+*.log
+
+# Build artifacts
+dist/
+build/
+
+# Dependencies
+vendor/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads
+uploads/*
+!uploads/.gitkeep

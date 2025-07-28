@@ -185,6 +185,17 @@ func main() {
 
 			// NEW: Receipt generation
 			sales.POST("/transactions/:id/receipt", transactionHandler.GenerateReceipt)
+
+			// Payment routes
+			sales.GET("/payment-methods", transactionHandler.GetPaymentMethods)
+			sales.POST("/payment-preview", transactionHandler.GetPaymentPreview)
+
+			// Installment routes
+			sales.GET("/transactions/:id/installments", transactionHandler.GetTransactionInstallments)
+			sales.POST("/transactions/:id/installments/:installmentId/pay", transactionHandler.PayInstallment)
+			sales.GET("/installments/overdue", transactionHandler.GetOverdueInstallments)
+			sales.GET("/installments/stats", transactionHandler.GetInstallmentStats)
+			sales.PATCH("/installments/:id/status", transactionHandler.UpdateInstallmentStatus)
 		}
 
 		// Purchase Transaction routes

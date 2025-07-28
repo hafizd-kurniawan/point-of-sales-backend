@@ -11,6 +11,7 @@ const (
 	PaymentTransfer PaymentMethod = "transfer"
 	PaymentCheck    PaymentMethod = "check"
 	PaymentCredit   PaymentMethod = "credit"
+	PaymentMixed    PaymentMethod = "mixed"
 )
 
 type TransactionStatus string
@@ -167,4 +168,87 @@ type CashierPerformance struct {
 	TotalProfit               float64 `json:"total_profit"`
 	AverageSalesTicket        float64 `json:"average_sales_ticket"`
 	AveragePurchaseTicket     float64 `json:"average_purchase_ticket"`
+}
+
+// Payment and Installment Request/Response DTOs
+type PaymentPreviewRequest struct {
+	TotalAmount       float64 `json:"total_amount" binding:"required,gt=0"`
+	PaymentMethod     string  `json:"payment_method" binding:"required"`
+	DownPayment       float64 `json:"down_payment" binding:"gte=0"`
+	InstallmentMonths int     `json:"installment_months" binding:"gte=0"`
+	InterestRate      float64 `json:"interest_rate" binding:"gte=0"`
+}
+
+type PayInstallmentRequest struct {
+	PaymentAmount    float64 `json:"payment_amount" binding:"required,gt=0"`
+	PaymentMethod    string  `json:"payment_method" binding:"required"`
+	PaymentReference string  `json:"payment_reference"`
+	Notes            string  `json:"notes"`
+}
+
+type UpdateInstallmentStatusRequest struct {
+	Status   string `json:"status" binding:"required"`
+	Notes    string `json:"notes"`
+	WaivedBy string `json:"waived_by"`
+}
+
+type PaymentMethodResponse struct {
+	Method            string   `json:"method"`
+	DisplayName       string   `json:"display_name"`
+	MinDownPayment    *float64 `json:"min_down_payment,omitempty"`
+	RequiresReference bool     `json:"requires_reference"`
+	Description       string   `json:"description"`
+}
+
+type PaymentPreviewResponse struct {
+	TotalAmount       float64 `json:"total_amount"`
+	DownPayment       float64 `json:"down_payment"`
+	RemainingAmount   float64 `json:"remaining_amount"`
+	InstallmentMonths int     `json:"installment_months"`
+	MonthlyPayment    float64 `json:"monthly_payment"`
+	InterestRate      float64 `json:"interest_rate"`
+	TotalInterest     float64 `json:"total_interest"`
+	TotalWithInterest float64 `json:"total_with_interest"`
+}
+
+type InstallmentStatus string
+
+const (
+	InstallmentPending InstallmentStatus = "pending"
+	InstallmentPaid    InstallmentStatus = "paid"
+	InstallmentOverdue InstallmentStatus = "overdue"
+	InstallmentWaived  InstallmentStatus = "waived"
+)
+
+type Installment struct {
+	ID                int               `json:"id" db:"id"`
+	TransactionID     int               `json:"transaction_id" db:"transaction_id"`
+	InstallmentNumber int               `json:"installment_number" db:"installment_number"`
+	DueDate           time.Time         `json:"due_date" db:"due_date"`
+	Amount            float64           `json:"amount" db:"amount"`
+	PaidAmount        float64           `json:"paid_amount" db:"paid_amount"`
+	Status            InstallmentStatus `json:"status" db:"status"`
+	PaidAt            *time.Time        `json:"paid_at" db:"paid_at"`
+	PaymentMethod     *PaymentMethod    `json:"payment_method" db:"payment_method"`
+	PaymentReference  string            `json:"payment_reference" db:"payment_reference"`
+	Notes             string            `json:"notes" db:"notes"`
+	WaivedBy          *int              `json:"waived_by" db:"waived_by"`
+	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at" db:"updated_at"`
+
+	// Relations for management screens
+	Transaction *SalesTransaction `json:"transaction,omitempty"`
+	Customer    *Customer         `json:"customer,omitempty"`
+	WaivedByUser *User            `json:"waived_by_user,omitempty"`
+}
+
+type InstallmentStats struct {
+	TotalInstallments     int     `json:"total_installments"`
+	PendingCount          int     `json:"pending_count"`
+	OverdueCount          int     `json:"overdue_count"`
+	PaidCount             int     `json:"paid_count"`
+	TotalPendingAmount    float64 `json:"total_pending_amount"`
+	TotalOverdueAmount    float64 `json:"total_overdue_amount"`
+	OverduePercentage     float64 `json:"overdue_percentage"`
+	CollectionRate        float64 `json:"collection_rate"`
 }

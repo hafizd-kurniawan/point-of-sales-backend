@@ -596,3 +596,258 @@ func (r *transactionRepositoryImpl) GetTopCashiers(limit int, year *int) ([]enti
 
 	return cashiers, nil
 }
+
+// Installment Management Methods
+func (r *transactionRepositoryImpl) GetTransactionInstallments(transactionID int) ([]entities.Installment, error) {
+	query := `
+		SELECT 
+			i.id, i.transaction_id, i.installment_number, i.due_date, 
+			i.amount, i.paid_amount, i.status, i.paid_at, i.payment_method, 
+			i.payment_reference, i.notes, i.waived_by, i.created_at, i.updated_at,
+			st.transaction_number, st.invoice_number, st.total_amount as transaction_total,
+			c.id as customer_id, c.full_name as customer_name, c.phone as customer_phone, c.email as customer_email
+		FROM installments i
+		INNER JOIN sales_transactions st ON i.transaction_id = st.id
+		INNER JOIN customers c ON st.customer_id = c.id
+		WHERE i.transaction_id = $1
+		ORDER BY i.installment_number
+	`
+
+	rows, err := r.db.Query(query, transactionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transaction installments: %w", err)
+	}
+	defer rows.Close()
+
+	var installments []entities.Installment
+	for rows.Next() {
+		var inst entities.Installment
+		var transaction entities.SalesTransaction
+		var customer entities.Customer
+
+		err := rows.Scan(
+			&inst.ID, &inst.TransactionID, &inst.InstallmentNumber, &inst.DueDate,
+			&inst.Amount, &inst.PaidAmount, &inst.Status, &inst.PaidAt, &inst.PaymentMethod,
+			&inst.PaymentReference, &inst.Notes, &inst.WaivedBy, &inst.CreatedAt, &inst.UpdatedAt,
+			&transaction.TransactionNumber, &transaction.InvoiceNumber, &transaction.TotalAmount,
+			&customer.ID, &customer.FullName, &customer.Phone, &customer.Email,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan installment: %w", err)
+		}
+
+		inst.Transaction = &transaction
+		inst.Customer = &customer
+		installments = append(installments, inst)
+	}
+
+	return installments, nil
+}
+
+func (r *transactionRepositoryImpl) GetInstallmentByID(id int) (*entities.Installment, error) {
+	query := `
+		SELECT 
+			i.id, i.transaction_id, i.installment_number, i.due_date, 
+			i.amount, i.paid_amount, i.status, i.paid_at, i.payment_method, 
+			i.payment_reference, i.notes, i.waived_by, i.created_at, i.updated_at,
+			st.transaction_number, st.invoice_number, st.total_amount as transaction_total,
+			c.id as customer_id, c.full_name as customer_name, c.phone as customer_phone, c.email as customer_email
+		FROM installments i
+		INNER JOIN sales_transactions st ON i.transaction_id = st.id
+		INNER JOIN customers c ON st.customer_id = c.id
+		WHERE i.id = $1
+	`
+
+	var inst entities.Installment
+	var transaction entities.SalesTransaction
+	var customer entities.Customer
+
+	err := r.db.QueryRow(query, id).Scan(
+		&inst.ID, &inst.TransactionID, &inst.InstallmentNumber, &inst.DueDate,
+		&inst.Amount, &inst.PaidAmount, &inst.Status, &inst.PaidAt, &inst.PaymentMethod,
+		&inst.PaymentReference, &inst.Notes, &inst.WaivedBy, &inst.CreatedAt, &inst.UpdatedAt,
+		&transaction.TransactionNumber, &transaction.InvoiceNumber, &transaction.TotalAmount,
+		&customer.ID, &customer.FullName, &customer.Phone, &customer.Email,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("installment not found")
+		}
+		return nil, fmt.Errorf("failed to get installment: %w", err)
+	}
+
+	inst.Transaction = &transaction
+	inst.Customer = &customer
+
+	return &inst, nil
+}
+
+func (r *transactionRepositoryImpl) GetOverdueInstallments(limit, offset int) ([]entities.Installment, int, error) {
+	// First update overdue status
+	_, err := r.db.Exec("SELECT update_overdue_installments()")
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to update overdue installments: %w", err)
+	}
+
+	// Count total overdue installments
+	countQuery := `
+		SELECT COUNT(*) 
+		FROM installments i
+		INNER JOIN sales_transactions st ON i.transaction_id = st.id
+		WHERE i.status IN ('overdue', 'pending') AND i.due_date < CURRENT_DATE
+	`
+	var total int
+	err = r.db.QueryRow(countQuery).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count overdue installments: %w", err)
+	}
+
+	// Get overdue installments with customer info
+	query := `
+		SELECT 
+			i.id, i.transaction_id, i.installment_number, i.due_date, 
+			i.amount, i.paid_amount, i.status, i.paid_at, i.payment_method, 
+			i.payment_reference, i.notes, i.waived_by, i.created_at, i.updated_at,
+			st.transaction_number, st.invoice_number, st.total_amount as transaction_total,
+			c.id as customer_id, c.full_name as customer_name, c.phone as customer_phone, c.email as customer_email
+		FROM installments i
+		INNER JOIN sales_transactions st ON i.transaction_id = st.id
+		INNER JOIN customers c ON st.customer_id = c.id
+		WHERE i.status IN ('overdue', 'pending') AND i.due_date < CURRENT_DATE
+		ORDER BY i.due_date ASC
+		LIMIT $1 OFFSET $2
+	`
+
+	rows, err := r.db.Query(query, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get overdue installments: %w", err)
+	}
+	defer rows.Close()
+
+	var installments []entities.Installment
+	for rows.Next() {
+		var inst entities.Installment
+		var transaction entities.SalesTransaction
+		var customer entities.Customer
+
+		err := rows.Scan(
+			&inst.ID, &inst.TransactionID, &inst.InstallmentNumber, &inst.DueDate,
+			&inst.Amount, &inst.PaidAmount, &inst.Status, &inst.PaidAt, &inst.PaymentMethod,
+			&inst.PaymentReference, &inst.Notes, &inst.WaivedBy, &inst.CreatedAt, &inst.UpdatedAt,
+			&transaction.TransactionNumber, &transaction.InvoiceNumber, &transaction.TotalAmount,
+			&customer.ID, &customer.FullName, &customer.Phone, &customer.Email,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan overdue installment: %w", err)
+		}
+
+		inst.Transaction = &transaction
+		inst.Customer = &customer
+		installments = append(installments, inst)
+	}
+
+	return installments, total, nil
+}
+
+func (r *transactionRepositoryImpl) PayInstallment(installmentID int, paymentAmount float64, paymentMethod, paymentReference, notes string) error {
+	query := `
+		UPDATE installments 
+		SET paid_amount = paid_amount + $2,
+			status = CASE 
+				WHEN paid_amount + $2 >= amount THEN 'paid'
+				ELSE status 
+			END,
+			paid_at = CASE 
+				WHEN paid_amount + $2 >= amount THEN CURRENT_TIMESTAMP
+				ELSE paid_at 
+			END,
+			payment_method = $3,
+			payment_reference = $4,
+			notes = COALESCE(NULLIF($5, ''), notes),
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status IN ('pending', 'overdue')
+	`
+
+	result, err := r.db.Exec(query, installmentID, paymentAmount, paymentMethod, paymentReference, notes)
+	if err != nil {
+		return fmt.Errorf("failed to pay installment: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("installment not found or already paid")
+	}
+
+	return nil
+}
+
+func (r *transactionRepositoryImpl) UpdateInstallmentStatus(id int, status string, notes string, waivedBy *int) error {
+	query := `
+		UPDATE installments 
+		SET status = $2,
+			notes = COALESCE(NULLIF($3, ''), notes),
+			waived_by = $4,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`
+
+	result, err := r.db.Exec(query, id, status, notes, waivedBy)
+	if err != nil {
+		return fmt.Errorf("failed to update installment status: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("installment not found")
+	}
+
+	return nil
+}
+
+func (r *transactionRepositoryImpl) GetInstallmentStats() (*entities.InstallmentStats, error) {
+	// First update overdue status
+	_, err := r.db.Exec("SELECT update_overdue_installments()")
+	if err != nil {
+		return nil, fmt.Errorf("failed to update overdue installments: %w", err)
+	}
+
+	query := `
+		SELECT 
+			COUNT(*) as total_installments,
+			COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
+			COUNT(CASE WHEN status = 'overdue' THEN 1 END) as overdue_count,
+			COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_count,
+			COALESCE(SUM(CASE WHEN status = 'pending' THEN amount - paid_amount END), 0) as total_pending_amount,
+			COALESCE(SUM(CASE WHEN status = 'overdue' THEN amount - paid_amount END), 0) as total_overdue_amount
+		FROM installments
+	`
+
+	var stats entities.InstallmentStats
+	err = r.db.QueryRow(query).Scan(
+		&stats.TotalInstallments,
+		&stats.PendingCount,
+		&stats.OverdueCount,
+		&stats.PaidCount,
+		&stats.TotalPendingAmount,
+		&stats.TotalOverdueAmount,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get installment stats: %w", err)
+	}
+
+	// Calculate percentages
+	if stats.TotalInstallments > 0 {
+		stats.OverduePercentage = float64(stats.OverdueCount) / float64(stats.TotalInstallments) * 100
+		stats.CollectionRate = float64(stats.PaidCount) / float64(stats.TotalInstallments) * 100
+	}
+
+	return &stats, nil
+}

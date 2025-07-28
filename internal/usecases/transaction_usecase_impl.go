@@ -8,7 +8,7 @@ import (
 	"vehicle-showroom-backend/internal/domain/repositories"
 )
 
-type transactionUsecase struct {
+type transactionUsecaseImpl struct {
 	transactionRepo repositories.TransactionRepository
 	vehicleRepo     repositories.VehicleRepository
 	customerRepo    repositories.CustomerRepository
@@ -23,7 +23,7 @@ func NewTransactionUsecase(
 	userRepo repositories.UserRepository,
 	config *config.Config,
 ) TransactionUsecase {
-	return &transactionUsecase{
+	return &transactionUsecaseImpl{
 		transactionRepo: transactionRepo,
 		vehicleRepo:     vehicleRepo,
 		customerRepo:    customerRepo,
@@ -33,7 +33,7 @@ func NewTransactionUsecase(
 }
 
 // Sales Transaction Methods
-func (u *transactionUsecase) CreateSalesTransaction(req *entities.CreateSalesTransactionRequest, cashierID int) (*entities.SalesTransaction, error) {
+func (u *transactionUsecaseImpl) CreateSalesTransaction(req *entities.CreateSalesTransactionRequest, cashierID int) (*entities.SalesTransaction, error) {
 	// Validate customer exists
 	_, err := u.customerRepo.GetByID(req.CustomerID)
 	if err != nil {
@@ -92,15 +92,15 @@ func (u *transactionUsecase) CreateSalesTransaction(req *entities.CreateSalesTra
 	return u.transactionRepo.GetSalesTransactionByID(transaction.ID)
 }
 
-func (u *transactionUsecase) GetSalesTransactionByID(id int) (*entities.SalesTransaction, error) {
+func (u *transactionUsecaseImpl) GetSalesTransactionByID(id int) (*entities.SalesTransaction, error) {
 	return u.transactionRepo.GetSalesTransactionByID(id)
 }
 
-func (u *transactionUsecase) GetSalesTransactionByNumber(number string) (*entities.SalesTransaction, error) {
+func (u *transactionUsecaseImpl) GetSalesTransactionByNumber(number string) (*entities.SalesTransaction, error) {
 	return u.transactionRepo.GetSalesTransactionByNumber(number)
 }
 
-func (u *transactionUsecase) GetSalesTransactions(page, limit int, filter *entities.SalesTransactionFilter) ([]entities.SalesTransaction, int, error) {
+func (u *transactionUsecaseImpl) GetSalesTransactions(page, limit int, filter *entities.SalesTransactionFilter) ([]entities.SalesTransaction, int, error) {
 	offset := (page - 1) * limit
 
 	transactions, err := u.transactionRepo.GetAllSalesTransactions(limit, offset, filter)
@@ -116,7 +116,7 @@ func (u *transactionUsecase) GetSalesTransactions(page, limit int, filter *entit
 	return transactions, total, nil
 }
 
-func (u *transactionUsecase) UpdateSalesTransaction(id int, req *entities.UpdateTransactionRequest) (*entities.SalesTransaction, error) {
+func (u *transactionUsecaseImpl) UpdateSalesTransaction(id int, req *entities.UpdateTransactionRequest) (*entities.SalesTransaction, error) {
 	// Get existing transaction
 	_, err := u.transactionRepo.GetSalesTransactionByID(id)
 	if err != nil {
@@ -139,7 +139,7 @@ func (u *transactionUsecase) UpdateSalesTransaction(id int, req *entities.Update
 	return u.transactionRepo.GetSalesTransactionByID(id)
 }
 
-func (u *transactionUsecase) CancelSalesTransaction(id int, reason string) error {
+func (u *transactionUsecaseImpl) CancelSalesTransaction(id int, reason string) error {
 	// Get existing transaction
 	existing, err := u.transactionRepo.GetSalesTransactionByID(id)
 	if err != nil {
@@ -160,7 +160,7 @@ func (u *transactionUsecase) CancelSalesTransaction(id int, reason string) error
 }
 
 // Purchase Transaction Methods
-func (u *transactionUsecase) CreatePurchaseTransaction(req *entities.CreatePurchaseTransactionRequest, cashierID int) (*entities.PurchaseTransaction, error) {
+func (u *transactionUsecaseImpl) CreatePurchaseTransaction(req *entities.CreatePurchaseTransactionRequest, cashierID int) (*entities.PurchaseTransaction, error) {
 	// Validate customer exists
 	_, err := u.customerRepo.GetByID(req.CustomerID)
 	if err != nil {
@@ -214,15 +214,15 @@ func (u *transactionUsecase) CreatePurchaseTransaction(req *entities.CreatePurch
 	return u.transactionRepo.GetPurchaseTransactionByID(transaction.ID)
 }
 
-func (u *transactionUsecase) GetPurchaseTransactionByID(id int) (*entities.PurchaseTransaction, error) {
+func (u *transactionUsecaseImpl) GetPurchaseTransactionByID(id int) (*entities.PurchaseTransaction, error) {
 	return u.transactionRepo.GetPurchaseTransactionByID(id)
 }
 
-func (u *transactionUsecase) GetPurchaseTransactionByNumber(number string) (*entities.PurchaseTransaction, error) {
+func (u *transactionUsecaseImpl) GetPurchaseTransactionByNumber(number string) (*entities.PurchaseTransaction, error) {
 	return u.transactionRepo.GetPurchaseTransactionByNumber(number)
 }
 
-func (u *transactionUsecase) GetPurchaseTransactions(page, limit int, filter *entities.PurchaseTransactionFilter) ([]entities.PurchaseTransaction, int, error) {
+func (u *transactionUsecaseImpl) GetPurchaseTransactions(page, limit int, filter *entities.PurchaseTransactionFilter) ([]entities.PurchaseTransaction, int, error) {
 	offset := (page - 1) * limit
 
 	transactions, err := u.transactionRepo.GetAllPurchaseTransactions(limit, offset, filter)
@@ -238,7 +238,7 @@ func (u *transactionUsecase) GetPurchaseTransactions(page, limit int, filter *en
 	return transactions, total, nil
 }
 
-func (u *transactionUsecase) UpdatePurchaseTransaction(id int, req *entities.UpdateTransactionRequest) (*entities.PurchaseTransaction, error) {
+func (u *transactionUsecaseImpl) UpdatePurchaseTransaction(id int, req *entities.UpdateTransactionRequest) (*entities.PurchaseTransaction, error) {
 	// Get existing transaction
 	_, err := u.transactionRepo.GetPurchaseTransactionByID(id)
 	if err != nil {
@@ -261,7 +261,7 @@ func (u *transactionUsecase) UpdatePurchaseTransaction(id int, req *entities.Upd
 	return u.transactionRepo.GetPurchaseTransactionByID(id)
 }
 
-func (u *transactionUsecase) CancelPurchaseTransaction(id int, reason string) error {
+func (u *transactionUsecaseImpl) CancelPurchaseTransaction(id int, reason string) error {
 	// Get existing transaction
 	existing, err := u.transactionRepo.GetPurchaseTransactionByID(id)
 	if err != nil {
@@ -282,11 +282,11 @@ func (u *transactionUsecase) CancelPurchaseTransaction(id int, reason string) er
 }
 
 // Analytics & Reports Methods
-func (u *transactionUsecase) GetTransactionStatistics(salesFilter *entities.SalesTransactionFilter, purchaseFilter *entities.PurchaseTransactionFilter) (*entities.TransactionStatistics, error) {
+func (u *transactionUsecaseImpl) GetTransactionStatistics(salesFilter *entities.SalesTransactionFilter, purchaseFilter *entities.PurchaseTransactionFilter) (*entities.TransactionStatistics, error) {
 	return u.transactionRepo.GetTransactionStatistics(salesFilter, purchaseFilter)
 }
 
-func (u *transactionUsecase) GetDailyReport(date string) (*DailyReport, error) {
+func (u *transactionUsecaseImpl) GetDailyReport(date string) (*DailyReport, error) {
 	// Parse date
 	parsedDate, err := time.Parse("2006-01-02", date)
 	if err != nil {
@@ -333,7 +333,7 @@ func (u *transactionUsecase) GetDailyReport(date string) (*DailyReport, error) {
 	return report, nil
 }
 
-func (u *transactionUsecase) GetMonthlyReport(year int, month int) (*MonthlyReport, error) {
+func (u *transactionUsecaseImpl) GetMonthlyReport(year int, month int) (*MonthlyReport, error) {
 	// Create date range for the month
 	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	endDate := startDate.AddDate(0, 1, 0).Add(-time.Nanosecond)
@@ -376,7 +376,7 @@ func (u *transactionUsecase) GetMonthlyReport(year int, month int) (*MonthlyRepo
 	return report, nil
 }
 
-func (u *transactionUsecase) GetCashierPerformance(cashierID int, year *int) (*entities.CashierPerformance, error) {
+func (u *transactionUsecaseImpl) GetCashierPerformance(cashierID int, year *int) (*entities.CashierPerformance, error) {
 	// Create filters
 	var salesFilter *entities.SalesTransactionFilter
 	var purchaseFilter *entities.PurchaseTransactionFilter
@@ -429,4 +429,69 @@ func (u *transactionUsecase) GetCashierPerformance(cashierID int, year *int) (*e
 	}
 
 	return performance, nil
+}
+
+// Installment Management Implementation
+func (u *transactionUsecaseImpl) GetTransactionInstallments(transactionID int) ([]entities.Installment, error) {
+	return u.transactionRepo.GetTransactionInstallments(transactionID)
+}
+
+func (u *transactionUsecaseImpl) GetInstallmentByID(id int) (*entities.Installment, error) {
+	return u.transactionRepo.GetInstallmentByID(id)
+}
+
+func (u *transactionUsecaseImpl) GetOverdueInstallments(page, limit int) ([]entities.Installment, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	offset := (page - 1) * limit
+	return u.transactionRepo.GetOverdueInstallments(limit, offset)
+}
+
+func (u *transactionUsecaseImpl) PayInstallment(installmentID int, paymentAmount float64, paymentMethod, paymentReference, notes string) error {
+	// Validate payment amount
+	if paymentAmount <= 0 {
+		return fmt.Errorf("payment amount must be greater than 0")
+	}
+
+	// Validate payment method
+	validMethods := map[string]bool{
+		"cash": true, "transfer": true, "check": true, "mixed": true,
+	}
+	if !validMethods[paymentMethod] {
+		return fmt.Errorf("invalid payment method: %s", paymentMethod)
+	}
+
+	// Get installment to validate payment amount doesn't exceed remaining balance
+	installment, err := u.transactionRepo.GetInstallmentByID(installmentID)
+	if err != nil {
+		return fmt.Errorf("failed to get installment: %w", err)
+	}
+
+	remainingAmount := installment.Amount - installment.PaidAmount
+	if paymentAmount > remainingAmount {
+		return fmt.Errorf("payment amount (%.2f) exceeds remaining balance (%.2f)", paymentAmount, remainingAmount)
+	}
+
+	return u.transactionRepo.PayInstallment(installmentID, paymentAmount, paymentMethod, paymentReference, notes)
+}
+
+func (u *transactionUsecaseImpl) UpdateInstallmentStatus(id int, status string, notes string, waivedBy *int) error {
+	// Validate status
+	validStatuses := map[string]bool{
+		"pending": true, "paid": true, "overdue": true, "waived": true,
+	}
+	if !validStatuses[status] {
+		return fmt.Errorf("invalid status: %s", status)
+	}
+
+	return u.transactionRepo.UpdateInstallmentStatus(id, status, notes, waivedBy)
+}
+
+func (u *transactionUsecaseImpl) GetInstallmentStats() (*entities.InstallmentStats, error) {
+	return u.transactionRepo.GetInstallmentStats()
 }
