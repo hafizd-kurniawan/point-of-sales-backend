@@ -194,6 +194,7 @@ func main() {
 			sales.GET("/transactions/:id/installments", transactionHandler.GetTransactionInstallments)
 			sales.POST("/transactions/:id/installments/:installmentId/pay", transactionHandler.PayInstallment)
 			sales.GET("/installments/overdue", transactionHandler.GetOverdueInstallments)
+			sales.GET("/installments/stats", transactionHandler.GetInstallmentStats)
 			sales.PATCH("/installments/:id/status", transactionHandler.UpdateInstallmentStatus)
 		}
 

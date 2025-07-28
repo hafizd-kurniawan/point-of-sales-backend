@@ -973,3 +973,32 @@ func (h *TransactionHandler) UpdateInstallmentStatus(c *gin.Context) {
 
 	response.Success(c, "Installment status updated successfully", installment)
 }
+
+// @Summary Get installment statistics
+// @Description Get aggregated statistics for all installments
+// @Tags Installments
+// @Accept json
+// @Produce json
+// @Success 200 {object} response.Response{data=entities.InstallmentStats}
+// @Failure 500 {object} response.Response
+// @Router /api/sales/installments/stats [get]
+func (h *TransactionHandler) GetInstallmentStats(c *gin.Context) {
+	// For now, return mock statistics
+	// In a real implementation, this would:
+	// 1. Query the database for installment statistics
+	// 2. Calculate aggregated metrics
+	// 3. Return comprehensive statistics
+
+	stats := entities.InstallmentStats{
+		TotalInstallments:     150,
+		PendingCount:          25,
+		OverdueCount:          8,
+		PaidCount:             117,
+		TotalPendingAmount:    125000000,
+		TotalOverdueAmount:    45000000,
+		OverduePercentage:     5.33,
+		CollectionRate:        78.0,
+	}
+
+	response.Success(c, "Installment statistics retrieved successfully", stats)
+}

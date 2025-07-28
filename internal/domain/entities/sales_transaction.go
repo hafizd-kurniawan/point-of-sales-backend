@@ -236,3 +236,14 @@ type Installment struct {
 	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at" db:"updated_at"`
 }
+
+type InstallmentStats struct {
+	TotalInstallments     int     `json:"total_installments"`
+	PendingCount          int     `json:"pending_count"`
+	OverdueCount          int     `json:"overdue_count"`
+	PaidCount             int     `json:"paid_count"`
+	TotalPendingAmount    float64 `json:"total_pending_amount"`
+	TotalOverdueAmount    float64 `json:"total_overdue_amount"`
+	OverduePercentage     float64 `json:"overdue_percentage"`
+	CollectionRate        float64 `json:"collection_rate"`
+}
